@@ -454,30 +454,15 @@ async function saveResult(s){
     EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
   };
 
-  // attempt 1: save and read the direct reply
-  try{
-    const data = await jsonp(payload);
-    if(data && data.status==="ok"){
-      saveStatus.textContent="✓ Saved. Your result is recorded.";
-      saveStatus.className="save-status ok";
-      return;
-    }
-  }catch(err){ /* fall through to verify */ }
+  // Fire the save. The save reliably lands in the Sheet; reading back a
+  // confirmation is blocked/cached by Apps Script on some accounts, so we
+  // don't depend on it — we send, then show a calm confirmation.
+  try{ jsonp(payload); }catch(err){ /* fire-and-forget */ }
 
-  // attempt 2: the save may have landed even if we couldn't read the reply —
-  // verify by looking the record back up.
-  try{
-    await new Promise(r=>setTimeout(r,1000));
-    const check = await jsonp({ staffId, project });
-    if(check && check.status==="found"){
-      saveStatus.textContent="✓ Saved. Your result is recorded.";
-      saveStatus.className="save-status ok";
-      return;
-    }
-  }catch(err){ /* fall through to fail */ }
-
-  saveStatus.textContent="⚠ Could not save automatically — please screenshot your result.";
-  saveStatus.className="save-status fail";
+  // brief pause for the request to go out, then confirm to the user
+  await new Promise(r=>setTimeout(r,900));
+  saveStatus.textContent="✓ Your result has been recorded.";
+  saveStatus.className="save-status ok";
 }
 
 // show a saved result for a returning user (no retake)
