@@ -428,21 +428,20 @@ function showResult(){
 async function saveResult(s){
   saveStatus.textContent="Saving your result…";
   saveStatus.className="save-status pending";
-  const payload={
+  const params = new URLSearchParams({
+    action:"save",
     staffId, displayName, fullName, nickName, project,
     EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
-  };
+  });
   try{
-    await fetch(SCRIPT_URL,{
-      method:"POST",
-      // Apps Script web apps accept the body; no-cors avoids browser blocking,
-      // but then we can't read the reply — so we send and assume success.
-      mode:"no-cors",
-      headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify(payload)
-    });
-    saveStatus.textContent="✓ Saved. Your result is recorded.";
-    saveStatus.className="save-status ok";
+    const res = await fetch(SCRIPT_URL + "?" + params.toString());
+    const data = await res.json();
+    if(data.status==="ok"){
+      saveStatus.textContent="✓ Saved. Your result is recorded.";
+      saveStatus.className="save-status ok";
+    } else {
+      throw new Error(data.message||"save failed");
+    }
   }catch(err){
     saveStatus.textContent="⚠ Could not save automatically — please screenshot your result.";
     saveStatus.className="save-status fail";
