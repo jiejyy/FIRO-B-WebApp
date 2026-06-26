@@ -315,6 +315,7 @@ function jsonp(params){
     window[cb] = (data)=>{ cleanup(); resolve(data); };
     const usp = new URLSearchParams(params);
     usp.set("callback", cb);
+    usp.set("_", Date.now().toString() + Math.random().toString(36).slice(2)); // cache-buster
     const script = document.createElement("script");
     script.src = SCRIPT_URL + "?" + usp.toString();
     script.onerror = ()=>{ cleanup(); reject(new Error("network")); };
@@ -446,22 +447,37 @@ function showResult(){
 async function saveResult(s){
   saveStatus.textContent="Saving your result…";
   saveStatus.className="save-status pending";
+
+  const payload = {
+    action:"save",
+    staffId, displayName, fullName, nickName, project,
+    EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
+  };
+
+  // attempt 1: save and read the direct reply
   try{
-    const data = await jsonp({
-      action:"save",
-      staffId, displayName, fullName, nickName, project,
-      EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
-    });
-    if(data.status==="ok"){
+    const data = await jsonp(payload);
+    if(data && data.status==="ok"){
       saveStatus.textContent="✓ Saved. Your result is recorded.";
       saveStatus.className="save-status ok";
-    } else {
-      throw new Error(data.message||"save failed");
+      return;
     }
-  }catch(err){
-    saveStatus.textContent="⚠ Could not save automatically — please screenshot your result.";
-    saveStatus.className="save-status fail";
-  }
+  }catch(err){ /* fall through to verify */ }
+
+  // attempt 2: the save may have landed even if we couldn't read the reply —
+  // verify by looking the record back up.
+  try{
+    await new Promise(r=>setTimeout(r,1000));
+    const check = await jsonp({ staffId, project });
+    if(check && check.status==="found"){
+      saveStatus.textContent="✓ Saved. Your result is recorded.";
+      saveStatus.className="save-status ok";
+      return;
+    }
+  }catch(err){ /* fall through to fail */ }
+
+  saveStatus.textContent="⚠ Could not save automatically — please screenshot your result.";
+  saveStatus.className="save-status fail";
 }
 
 // show a saved result for a returning user (no retake)
