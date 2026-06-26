@@ -433,17 +433,31 @@ async function saveResult(s){
     staffId, displayName, fullName, nickName, project,
     EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
   });
+  const saveUrl = SCRIPT_URL + "?" + params.toString();
+
+  // Send with no-cors so the browser doesn't block on the cross-origin response.
+  // This reaches the script (GET saves work), but we can't read its reply —
+  // so afterwards we verify by looking the record back up.
   try{
-    const res = await fetch(SCRIPT_URL + "?" + params.toString());
+    await fetch(saveUrl, { mode:"no-cors" });
+  }catch(err){ /* ignore — no-cors hides errors */ }
+
+  // verify the save actually landed by reading it back
+  try{
+    await new Promise(r=>setTimeout(r,1200)); // give the Sheet a moment to write
+    const checkUrl = SCRIPT_URL + "?staffId=" + encodeURIComponent(staffId)
+                   + "&project=" + encodeURIComponent(project);
+    const res = await fetch(checkUrl);
     const data = await res.json();
-    if(data.status==="ok"){
+    if(data.status==="found"){
       saveStatus.textContent="✓ Saved. Your result is recorded.";
       saveStatus.className="save-status ok";
     } else {
-      throw new Error(data.message||"save failed");
+      saveStatus.textContent="⚠ Could not confirm save — please screenshot your result.";
+      saveStatus.className="save-status fail";
     }
   }catch(err){
-    saveStatus.textContent="⚠ Could not save automatically — please screenshot your result.";
+    saveStatus.textContent="⚠ Could not confirm save — please screenshot your result.";
     saveStatus.className="save-status fail";
   }
 }
