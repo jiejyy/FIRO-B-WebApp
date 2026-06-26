@@ -301,6 +301,27 @@ let project="ADP 2026";
 // Google Apps Script web app URL (storage connector)
 const SCRIPT_URL = "https://script.google.com/a/macros/shopee.com/s/AKfycbyEPOmbsuG7EhZabYU6iZ2y4Ae2_s3hwvVZvGptmyOwMO2mCthIpL2h4auMvAGKpmr_/exec";
 
+// JSONP call — bypasses CORS by loading the response as a <script>.
+// The Apps Script wraps its JSON in callback(...) when given ?callback=name.
+function jsonp(params){
+  return new Promise((resolve,reject)=>{
+    const cb = "cb_" + Math.random().toString(36).slice(2);
+    const timer = setTimeout(()=>{ cleanup(); reject(new Error("timeout")); }, 12000);
+    function cleanup(){
+      clearTimeout(timer);
+      delete window[cb];
+      if(script.parentNode) script.parentNode.removeChild(script);
+    }
+    window[cb] = (data)=>{ cleanup(); resolve(data); };
+    const usp = new URLSearchParams(params);
+    usp.set("callback", cb);
+    const script = document.createElement("script");
+    script.src = SCRIPT_URL + "?" + usp.toString();
+    script.onerror = ()=>{ cleanup(); reject(new Error("network")); };
+    document.body.appendChild(script);
+  });
+}
+
 /* ---------- ELEMENTS ---------- */
 const intro=document.getElementById('intro');
 const quiz=document.getElementById('quiz');
@@ -338,10 +359,7 @@ startBtn.addEventListener('click',async ()=>{
   startBtn.disabled=true;
   showEntryMsg("Checking your records…","info");
   try{
-    const url = SCRIPT_URL + "?staffId=" + encodeURIComponent(staffId)
-              + "&project=" + encodeURIComponent(project);
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await jsonp({ staffId, project });
     if(data.status==="found"){
       // returning user — show their saved result, don't retake
       startBtn.disabled=false;
@@ -424,40 +442,24 @@ function showResult(){
   saveResult(s);
 }
 
-// save scores to the Google Sheet via Apps Script
+// save scores to the Google Sheet via Apps Script (JSONP — bypasses CORS)
 async function saveResult(s){
   saveStatus.textContent="Saving your result…";
   saveStatus.className="save-status pending";
-  const params = new URLSearchParams({
-    action:"save",
-    staffId, displayName, fullName, nickName, project,
-    EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
-  });
-  const saveUrl = SCRIPT_URL + "?" + params.toString();
-
-  // Send with no-cors so the browser doesn't block on the cross-origin response.
-  // This reaches the script (GET saves work), but we can't read its reply —
-  // so afterwards we verify by looking the record back up.
   try{
-    await fetch(saveUrl, { mode:"no-cors" });
-  }catch(err){ /* ignore — no-cors hides errors */ }
-
-  // verify the save actually landed by reading it back
-  try{
-    await new Promise(r=>setTimeout(r,1200)); // give the Sheet a moment to write
-    const checkUrl = SCRIPT_URL + "?staffId=" + encodeURIComponent(staffId)
-                   + "&project=" + encodeURIComponent(project);
-    const res = await fetch(checkUrl);
-    const data = await res.json();
-    if(data.status==="found"){
+    const data = await jsonp({
+      action:"save",
+      staffId, displayName, fullName, nickName, project,
+      EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
+    });
+    if(data.status==="ok"){
       saveStatus.textContent="✓ Saved. Your result is recorded.";
       saveStatus.className="save-status ok";
     } else {
-      saveStatus.textContent="⚠ Could not confirm save — please screenshot your result.";
-      saveStatus.className="save-status fail";
+      throw new Error(data.message||"save failed");
     }
   }catch(err){
-    saveStatus.textContent="⚠ Could not confirm save — please screenshot your result.";
+    saveStatus.textContent="⚠ Could not save automatically — please screenshot your result.";
     saveStatus.className="save-status fail";
   }
 }
