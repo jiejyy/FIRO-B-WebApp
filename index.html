@@ -68,6 +68,14 @@
   .save-status.ok{color:#1F7A45;}
   .save-status.pending{color:var(--ink-faint);}
   .save-status.fail{color:var(--orange-deep);}
+  .stat{flex:1;background:var(--cream);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;}
+  .stat-n{font-size:24px;font-weight:800;color:var(--orange);}
+  .stat-l{font-size:11px;color:var(--ink-faint);margin-top:2px;}
+  table.adm{width:100%;border-collapse:collapse;font-size:12px;}
+  table.adm th{background:var(--cream-deep);color:var(--ink-soft);padding:8px 9px;text-align:left;font-weight:600;white-space:nowrap;}
+  table.adm td{border-top:1px solid var(--border);padding:7px 9px;white-space:nowrap;}
+  table.adm td.sc{text-align:center;font-weight:600;color:var(--orange-deep);}
+  table.adm tr:nth-child(even) td{background:#FCFAF6;}
 
   .btn{
     width:100%;border:none;cursor:pointer;font-family:inherit;
@@ -195,6 +203,36 @@
       <span><b>Save your result.</b> Take a screenshot of this grid to share with your facilitator. Closing this page will clear it.</span>
     </div>
     <button class="btn ghost" id="restartBtn" style="margin-top:16px;">Start over</button>
+  </section>
+
+  <!-- ADMIN DASHBOARD -->
+  <section id="admin" class="card hidden">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div>
+        <span class="eyebrow">Admin · results</span>
+        <div style="font-size:18px; font-weight:700; color:var(--ink); margin-top:2px;">All participants</div>
+      </div>
+      <button class="btn ghost" id="adminExit" style="width:auto; margin:0; padding:9px 16px;">Exit</button>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-top:16px;">
+      <div style="flex:1; min-width:130px;">
+        <label class="field" for="adminProject">Project</label>
+        <select id="adminProject">
+          <option value="ADP 2026">ADP 2026</option>
+          <option value="">All projects</option>
+        </select>
+      </div>
+      <button class="btn" id="adminRefresh" style="width:auto; margin:0; padding:12px 16px;">Refresh</button>
+      <button class="btn" id="adminCsv" style="width:auto; margin:0; padding:12px 16px;">⬇ CSV</button>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <div class="stat"><div class="stat-n" id="statDone">0</div><div class="stat-l">completed</div></div>
+    </div>
+
+    <div id="adminMsg" style="font-size:13px; color:var(--ink-faint); margin-top:14px;">Loading…</div>
+    <div id="adminTableWrap" style="margin-top:14px; overflow-x:auto;"></div>
   </section>
 
 </div>
@@ -346,11 +384,21 @@ const restartBtn=document.getElementById('restartBtn');
 /* ---------- FLOW ---------- */
 function clean(s){ return (s||"").replace(/\s+/g," ").trim(); }
 
+const ADMIN_CODE = "Admin2026";
+
 startBtn.addEventListener('click',async ()=>{
   fullName=clean(nameInput.value);
   nickName=clean(nickInput.value);
   staffId=clean(staffInput.value);
   project=projectInput.value;
+
+  // admin login: if Staff ID matches the admin code, open the dashboard
+  if(staffId===ADMIN_CODE){
+    intro.classList.add('hidden');
+    openAdmin();
+    return;
+  }
+
   const first = fullName.split(" ")[0];   // everything before the first space
   displayName = nickName ? `${first} (${nickName})` : first;
 
@@ -453,6 +501,8 @@ async function saveResult(s){
     staffId, displayName, fullName, nickName, project,
     EI:s.EI, WI:s.WI, EC:s.EC, WC:s.WC, EA:s.EA, WA:s.WA
   };
+  // include each of the 54 answers as Q1..Q54 (the number 1-6 the person picked)
+  for(let n=1;n<=54;n++){ payload["Q"+n] = (answers[n]!=null ? answers[n] : ""); }
 
   // Fire the save. The save reliably lands in the Sheet; reading back a
   // confirmation is blocked/cached by Apps Script on some accounts, so we
@@ -486,6 +536,87 @@ restartBtn.addEventListener('click',()=>{
   displayName=""; fullName=""; nickName=""; staffId="";
   hideEntryMsg();
   result.classList.add('hidden');
+  intro.classList.remove('hidden');
+  intro.classList.add('fade');
+});
+
+/* ---------- ADMIN DASHBOARD ---------- */
+const adminEl=document.getElementById('admin');
+const adminProject=document.getElementById('adminProject');
+const adminMsg=document.getElementById('adminMsg');
+const adminTableWrap=document.getElementById('adminTableWrap');
+const statDone=document.getElementById('statDone');
+let adminRows=[];
+
+function openAdmin(){
+  adminEl.classList.remove('hidden');
+  adminEl.classList.add('fade');
+  loadAdmin();
+}
+
+async function loadAdmin(){
+  adminMsg.textContent="Loading…";
+  adminTableWrap.innerHTML="";
+  try{
+    const data = await jsonp({ action:"getAll", project: adminProject.value });
+    if(data && data.status==="ok"){
+      adminRows = data.rows||[];
+      statDone.textContent = adminRows.length;
+      if(adminRows.length===0){
+        adminMsg.textContent="No results yet for this project.";
+        return;
+      }
+      adminMsg.textContent="";
+      renderAdminTable(adminRows);
+    } else {
+      adminMsg.textContent="Could not load results.";
+    }
+  }catch(err){
+    adminMsg.textContent="Could not load results — check your connection.";
+  }
+}
+
+function renderAdminTable(rows){
+  let h="<table class='adm'><thead><tr>"
+    + "<th>Staff ID</th><th>Name</th>"
+    + "<th>EI</th><th>WI</th><th>EC</th><th>WC</th><th>EA</th><th>WA</th>"
+    + "</tr></thead><tbody>";
+  rows.forEach(r=>{
+    h+="<tr><td>"+esc(r.staffId)+"</td><td>"+esc(r.displayName)+"</td>"
+      +"<td class='sc'>"+r.EI+"</td><td class='sc'>"+r.WI+"</td>"
+      +"<td class='sc'>"+r.EC+"</td><td class='sc'>"+r.WC+"</td>"
+      +"<td class='sc'>"+r.EA+"</td><td class='sc'>"+r.WA+"</td></tr>";
+  });
+  h+="</tbody></table>";
+  adminTableWrap.innerHTML=h;
+}
+
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function downloadCsv(){
+  if(adminRows.length===0){ return; }
+  const head=["Staff ID","Display Name","Full Name","Nickname","Project","EI","WI","EC","WC","EA","WA"];
+  const lines=[head.join(",")];
+  adminRows.forEach(r=>{
+    const row=[r.staffId,r.displayName,r.fullName,r.nickName,r.project,r.EI,r.WI,r.EC,r.WC,r.EA,r.WA]
+      .map(v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"');
+    lines.push(row.join(","));
+  });
+  const blob=new Blob([lines.join("\n")],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="firo-b-results-"+(adminProject.value||"all")+".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('adminRefresh').addEventListener('click',loadAdmin);
+document.getElementById('adminProject').addEventListener('change',loadAdmin);
+document.getElementById('adminCsv').addEventListener('click',downloadCsv);
+document.getElementById('adminExit').addEventListener('click',()=>{
+  adminEl.classList.add('hidden');
+  staffInput.value="";
   intro.classList.remove('hidden');
   intro.classList.add('fade');
 });
